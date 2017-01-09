@@ -1,0 +1,15 @@
+{
+    "tablesLastChangeTime": 1481056128.0387616,
+    "tablesAgeOuts": 37,
+    "tablesInserts": 60,
+    "lldpNeighbors": [
+        {
+            "ttl": 120,
+            "neighborDevice": "veos03.eng.ansible.com",
+            "neighborPort": "Ethernet1",
+            "port": "Ethernet1"
+        }
+    ],
+    "tablesDeletes": 59,
+    "tablesDrops": 0
+}
