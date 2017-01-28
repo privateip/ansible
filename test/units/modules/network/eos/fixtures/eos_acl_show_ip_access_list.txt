@@ -1,0 +1,8 @@
+Standard IP Access List ansible
+        10 permit any
+        20 permit host 1.2.3.4
+        30 permit host 1.2.3.4/5
+        40 deny any
+        50 deny host 1.2.3.4
+        60 deny host 1.2.3.4/5
+        70 permit any log
