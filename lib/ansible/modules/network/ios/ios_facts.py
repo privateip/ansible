@@ -144,7 +144,7 @@ ansible_net_neighbors:
 """
 import re
 
-from ansible.module_utils.ios import run_commands
+from ansible.module_utils.ios import get
 from ansible.module_utils.ios import ios_argument_spec, check_args
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.six import iteritems
@@ -162,10 +162,10 @@ class FactsBase(object):
 
 
     def populate(self):
-        self.responses = run_commands(self.module, self.COMMANDS, check_rc=False)
+        self.responses = get(self.module, self.COMMANDS, check_rc=False)
 
     def run(self, cmd):
-        return run_commands(self.module, cmd, check_rc=False)
+        return get(self.module, cmd, check_rc=False)
 
 class Default(FactsBase):
 

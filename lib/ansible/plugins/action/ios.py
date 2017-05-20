@@ -22,6 +22,7 @@ __metaclass__ = type
 import os
 import sys
 import copy
+import json
 
 from ansible.plugins.action.normal import ActionModule as _ActionModule
 from ansible.utils.path import unfrackpath
@@ -29,7 +30,7 @@ from ansible.plugins import connection_loader
 from ansible.module_utils.basic import AnsibleFallbackNotFound
 from ansible.module_utils.ios import ios_argument_spec
 from ansible.module_utils.six import iteritems
-from ansible.module_utils._text import to_bytes
+from ansible.module_utils._text import to_text
 
 try:
     from __main__ import display
@@ -71,8 +72,8 @@ class ActionModule(_ActionModule):
 
         if not os.path.exists(socket_path):
             # start the connection if it isn't started
-            rc, out, err = connection.exec_command('open_shell()')
-            display.vvvv('open_shell() returned %s %s %s' % (rc, out, err))
+            rc, out, err = connection.exec_command('open_session')
+            display.vvvv('open_session() returned %s %s %s' % (rc, out, err))
             if not rc == 0:
                 return {'failed': True,
                         'msg': 'unable to open shell. Please see: ' +
@@ -81,12 +82,20 @@ class ActionModule(_ActionModule):
         else:
             # make sure we are in the right cli context which should be
             # enable mode and not config module
-            rc, out, err = connection.exec_command('prompt()')
-            if str(out).strip().endswith(')#'):
+            rc, out, err = connection.exec_command('get_prompt')
+            if to_text(out).strip().endswith(')#'):
                 display.vvvv('wrong context, sending exit to device', self._play_context.remote_addr)
                 connection.exec_command('exit')
 
         task_vars['ansible_socket'] = socket_path
+
+        rc, out, err = connection.exec_command('get_capabilities')
+        display.vvvv('open_session() returned %s %s %s' % (rc, out, err))
+        if not rc == 0:
+            return {'failed': True,
+                    'msg': 'Failed to get device capabilities.',
+                    'rc': rc}
+        task_vars['device_info'] = json.loads(to_text(out).strip())
 
         if self._play_context.become_method == 'enable':
             self._play_context.become = False
