@@ -136,3 +136,5 @@ def get(module, commands, check_rc=True):
             module.fail_json(msg=to_text(err, errors='surrogate_then_replace'), rc=rc)
         responses.append(to_text(out, errors='surrogate_then_replace'))
     return responses
+
+

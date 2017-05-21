@@ -65,41 +65,43 @@ class ActionModule(_ActionModule):
         pc.become_pass = provider['auth_pass']
 
         display.vvv('using connection plugin %s' % pc.connection, pc.remote_addr)
-        connection = self._shared_loader_obj.connection_loader.get('persistent', pc, sys.stdin)
+        #connection = self._shared_loader_obj.connection_loader.get('persistent', pc, sys.stdin)
+        connection = self._shared_loader_obj.connection_loader.get('network_cli', class_only=True)
+        socket_path = connection.start(pc)
 
-        socket_path = self._get_socket_path(pc)
+        #socket_path = self._get_socket_path(pc)
         display.vvvv('socket_path: %s' % socket_path, pc.remote_addr)
 
-        if not os.path.exists(socket_path):
-            # start the connection if it isn't started
-            rc, out, err = connection.exec_command('open_session')
-            display.vvvv('open_session() returned %s %s %s' % (rc, out, err))
-            if not rc == 0:
-                return {'failed': True,
-                        'msg': 'unable to open shell. Please see: ' +
-                               'https://docs.ansible.com/ansible/network_debug_troubleshooting.html#unable-to-open-shell',
-                        'rc': rc}
-        else:
-            # make sure we are in the right cli context which should be
-            # enable mode and not config module
-            rc, out, err = connection.exec_command('get_prompt')
-            if to_text(out).strip().endswith(')#'):
-                display.vvvv('wrong context, sending exit to device', self._play_context.remote_addr)
-                connection.exec_command('exit')
+        #if not os.path.exists(socket_path):
+        #    # start the connection if it isn't started
+        #    rc, out, err = connection.exec_command('open_session')
+        #    display.vvvv('open_session() returned %s %s %s' % (rc, out, err))
+        #    if not rc == 0:
+        #        return {'failed': True,
+        #                'msg': 'unable to open shell. Please see: ' +
+        #                       'https://docs.ansible.com/ansible/network_debug_troubleshooting.html#unable-to-open-shell',
+        #                'rc': rc}
+        #else:
+        #    # make sure we are in the right cli context which should be
+        #    # enable mode and not config module
+        #    rc, out, err = connection.exec_command('get_prompt')
+        #    if to_text(out).strip().endswith(')#'):
+        #        display.vvvv('wrong context, sending exit to device', self._play_context.remote_addr)
+        #        connection.exec_command('exit')
 
         task_vars['ansible_socket'] = socket_path
 
-        rc, out, err = connection.exec_command('get_capabilities')
-        display.vvvv('open_session() returned %s %s %s' % (rc, out, err))
-        if not rc == 0:
-            return {'failed': True,
-                    'msg': 'Failed to get device capabilities.',
-                    'rc': rc}
-        task_vars['device_info'] = json.loads(to_text(out).strip())
+        #rc, out, err = connection.exec_command('get_capabilities')
+        #display.vvvv('open_session() returned %s %s %s' % (rc, out, err))
+        #if not rc == 0:
+        #    return {'failed': True,
+        #            'msg': 'Failed to get device capabilities.',
+        #            'rc': rc}
+        #task_vars['device_info'] = json.loads(to_text(out).strip())
 
-        if self._play_context.become_method == 'enable':
-            self._play_context.become = False
-            self._play_context.become_method = None
+        #if self._play_context.become_method == 'enable':
+        #    self._play_context.become = False
+        #    self._play_context.become_method = None
 
         result = super(ActionModule, self).run(tmp, task_vars)
         return result
