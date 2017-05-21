@@ -81,11 +81,15 @@ class Connection(Persistable, Rpc, _Connection):
         self._shell.settimeout(self._play_context.timeout)
 
         network_os = self._play_context.network_os
+        terminal_init_completed = False
+
         if not network_os:
             if not network_os:
                 for cls in cliconf_loader.all(class_only=True):
-                    network_os = cls.guess_network_os(self.ssh)
+                    network_os = cls.guess_network_os(self._shell)
                     if network_os:
+                        display.display('discovered network_os %s' % network_os, log_only=True)
+                        terminal_init_completed = True
                         break
 
         if not network_os:
@@ -102,10 +106,11 @@ class Connection(Persistable, Rpc, _Connection):
 
         display.display('loaded cliconf plugin for network_os %s' % network_os, log_only=True)
 
-        self.receive()
+        if not terminal_init_completed:
+            self.receive()
 
-        display.display('firing event: on_open_shell()', log_only=True)
-        self._cliconf._on_open_shell()
+            display.display('firing event: on_open_shell()', log_only=True)
+            self._cliconf._on_open_shell()
 
         if getattr(self._play_context, 'become', None):
             display.display('firing event: on_authorize', log_only=True)
