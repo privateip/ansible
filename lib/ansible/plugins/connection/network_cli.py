@@ -36,9 +36,7 @@ from ansible.plugins import cliconf_loader
 from ansible.plugins.connection import ensure_connect
 from ansible.plugins.connection.paramiko_ssh import Connection as _Connection
 from ansible.errors import AnsibleError, AnsibleConnectionFailure
-
 from ansible.utils.jsonrpc import Rpc
-from ansible.utils.persistable import Persistable
 
 try:
     from __main__ import display
@@ -47,7 +45,7 @@ except ImportError:
     display = Display()
 
 
-class Connection(Persistable, Rpc, _Connection):
+class Connection(Rpc, _Connection):
     """CLI (shell) SSH connections on Paramiko """
 
     transport = 'network_cli'
@@ -119,6 +117,20 @@ class Connection(Persistable, Rpc, _Connection):
 
         self._connected = True
         display.display('ssh session negotiation has completed successfully', log_only=True)
+
+    def update_play_context(self, play_context):
+        """Updates the play context information for the connection"""
+
+        display.display('updating play_context for connection', log_only=True)
+
+        if self._play_context.become is False and play_context.become is True:
+            auth_pass = play_context.become_pass
+            self._terminal.on_authorize(passwd=auth_pass)
+
+        elif self._play_context.become is True and not play_context.become:
+            self._terminal.on_deauthorize()
+
+        self._play_context = play_context
 
     def close(self):
         """Close the active connection to the device
