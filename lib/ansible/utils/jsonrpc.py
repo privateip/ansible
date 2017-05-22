@@ -36,6 +36,7 @@ class Rpc:
 
     def _exec_rpc(self, request):
 
+        display.display('exec_rpc is handling request %s' % request, log_only=True)
         method = request.get('method')
 
         if method.startswith('rpc.') or method.startswith('_'):

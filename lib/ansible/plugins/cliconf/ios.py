@@ -79,11 +79,12 @@ class Cliconf(CliconfBase):
 
     def _on_open_shell(self):
         display.display("-- _on_open_shell --")
-        try:
-            for cmd in [b'terminal length 0', b'terminal width 512']:
-                self.send_command(cmd)
-        except AnsibleConnectionFailure:
-            raise AnsibleConnectionFailure('unable to set cliconf parameters')
+        if not self._terminal_init_complete:
+            try:
+                for cmd in [b'terminal length 0', b'terminal width 512']:
+                    self.send_command(cmd)
+            except AnsibleConnectionFailure:
+                raise AnsibleConnectionFailure('unable to set cliconf parameters')
 
     def _on_authorize(self, passwd=None):
         if self._get_prompt().endswith(b'#'):
@@ -136,7 +137,12 @@ class Cliconf(CliconfBase):
         return json.dumps(result)
 
     @staticmethod
-    def guess_network_os(conn):
-        stdin, stdout, stderr = conn.exec_command(b'show version')
-        if 'Cisco IOS Software' in stdout.read():
+    def guess_network_os(channel):
+        for cmd in [b'terminal length 0', b'terminal width 512', b'show version']:
+            channel.send('%s\r' % cmd)
+
+        # FIXME need to think this through more
+        time.sleep(3)
+        output = channel.recv(2048)
+        if 'Cisco IOS Software' in output:
             return 'ios'
