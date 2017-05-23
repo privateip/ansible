@@ -41,7 +41,6 @@ class Connection(ConnectionBase):
     has_pipelining = False
 
     def _connect(self):
-
         self._connected = True
         return self
 
@@ -83,3 +82,7 @@ class Connection(ConnectionBase):
 
     def close(self):
         self._connected = False
+
+    def run(self):
+        rc, out, err = self._do_it('RUN:')
+        return out

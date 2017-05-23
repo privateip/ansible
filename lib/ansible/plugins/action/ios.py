@@ -25,8 +25,6 @@ import copy
 import json
 
 from ansible.plugins.action.normal import ActionModule as _ActionModule
-from ansible.utils.path import unfrackpath
-from ansible.plugins import connection_loader
 from ansible.module_utils.basic import AnsibleFallbackNotFound
 from ansible.module_utils.ios import ios_argument_spec
 from ansible.module_utils.six import iteritems
@@ -65,11 +63,9 @@ class ActionModule(_ActionModule):
         pc.become_pass = provider['auth_pass']
 
         display.vvv('using connection plugin %s' % pc.connection, pc.remote_addr)
-        #connection = self._shared_loader_obj.connection_loader.get('persistent', pc, sys.stdin)
-        connection = self._shared_loader_obj.connection_loader.get('network_cli', class_only=True)
-        socket_path = connection.start(pc)
+        connection = self._shared_loader_obj.connection_loader.get('persistent', pc, sys.stdin)
 
-        #socket_path = self._get_socket_path(pc)
+        socket_path = connection.run()
         display.vvvv('socket_path: %s' % socket_path, pc.remote_addr)
 
         #if not os.path.exists(socket_path):
@@ -105,12 +101,6 @@ class ActionModule(_ActionModule):
 
         result = super(ActionModule, self).run(tmp, task_vars)
         return result
-
-    def _get_socket_path(self, play_context):
-        ssh = connection_loader.get('ssh', class_only=True)
-        cp = ssh._create_control_path(play_context.remote_addr, play_context.port, play_context.remote_user)
-        path = unfrackpath("$HOME/.ansible/pc")
-        return cp % dict(directory=path)
 
     def load_provider(self):
         provider = self._task.args.get('provider', {})
