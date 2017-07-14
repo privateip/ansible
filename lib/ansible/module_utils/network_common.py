@@ -25,11 +25,18 @@
 # LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
 # USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
+import re
+import operator
+
 from itertools import chain
 
 from ansible.module_utils.six import iteritems
 from ansible.module_utils.basic import AnsibleFallbackNotFound
 from ansible.module_utils.six import iteritems
+
+
+OPERATORS = frozenset(['ge', 'gt', 'eq', 'neq', 'lt', 'le'])
+ALIASES = frozenset([('min', 'ge'), ('max', 'le'), ('exactly', 'eq')])
 
 
 def to_list(val):
@@ -281,3 +288,28 @@ def dict_merge(base, other):
         combined[key] = other.get(key)
 
     return combined
+
+def test_value(expr, val, cast=None):
+    match = re.match('^(.+)\((.+)\)$', str(expr), re.I)
+    if match:
+        op, arg = match.groups()
+    else:
+        op = 'eq'
+        import q; q(expr)
+        assert (' ' not in str(expr)), 'invalid expression: cannot contain spaces'
+        arg = expr
+
+    if cast is None:
+        arg = type(val)(arg)
+    else:
+        arg = cast(arg)
+        val = cast(val)
+
+    op = next((oper for alias, oper in ALIASES if op == alias), op)
+
+    if not hasattr(operator, op) and op not in OPERATORS:
+        raise ValueError('unknown operator: %s' % op)
+
+    func = getattr(operator, op)
+    return func(val, arg)
+
