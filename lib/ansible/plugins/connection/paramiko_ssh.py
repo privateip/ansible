@@ -114,7 +114,7 @@ class MyAddPolicy(object):
 
         if all((C.HOST_KEY_CHECKING, not C.PARAMIKO_HOST_KEY_AUTO_ADD)):
 
-            if C.USE_PERSISTENT_CONNECTIONS:
+            if self.connection.transport == 'network_cli':
                 raise AnsibleConnectionFailure('rejected %s host key for host %s: %s' % (key.get_name(), hostname, hexlify(key.get_fingerprint())))
 
             self.connection.connection_lock()

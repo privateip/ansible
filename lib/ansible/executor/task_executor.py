@@ -718,14 +718,20 @@ class TaskExecutor:
 
         # if using persistent paramiko connections (or the action has set the FORCE_PERSISTENT_CONNECTION attribute to True),
         # then we use the persistent connection plugion. Otherwise load the requested connection plugin
-        if C.USE_PERSISTENT_CONNECTIONS or getattr(self, 'FORCE_PERSISTENT_CONNECTION', False):
-            conn_type = 'persistent'
-        else:
-            conn_type = self._play_context.connection
+        #if C.USE_PERSISTENT_CONNECTIONS or getattr(self, 'FORCE_PERSISTENT_CONNECTION', False):
+        #    conn_type = 'persistent'
+        #else:
+        #    conn_type = self._play_context.connection
+
+        conn_type = self._play_context.connection
 
         connection = self._shared_loader_obj.connection_loader.get(conn_type, self._play_context, self._new_stdin)
         if not connection:
             raise AnsibleError("the connection plugin '%s' was not found" % conn_type)
+
+        if hasattr(connection, 'start'):
+            display.vvvv('attempting to start connection', host=self._play_context.remote_addr)
+            connection.start(self._play_context)
 
         self._play_context.set_options_from_plugin(connection)
 

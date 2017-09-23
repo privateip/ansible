@@ -28,7 +28,7 @@
 from ansible.module_utils._text import to_text
 from ansible.module_utils.basic import env_fallback, return_values
 from ansible.module_utils.network_common import to_list, ComplexList
-from ansible.module_utils.connection import exec_command
+from ansible.module_utils.connection import get_connection
 
 _DEVICE_CONFIGS = {}
 
@@ -68,11 +68,10 @@ def check_args(module, warnings):
 
 
 def get_defaults_flag(module):
-    rc, out, err = exec_command(module, 'show running-config ?')
-    out = to_text(out, errors='surrogate_then_replace')
-
+    connection = get_connection(module)
+    output = connection.get('show running-config ?')
     commands = set()
-    for line in out.splitlines():
+    for line in output.splitlines():
         if line.strip():
             commands.add(line.strip().split()[0])
 
@@ -82,20 +81,12 @@ def get_defaults_flag(module):
         return ['full']
 
 
-def get_config(module, flags=None):
-    flags = [] if flags is None else flags
-
-    cmd = 'show running-config '
-    cmd += ' '.join(flags)
-    cmd = cmd.strip()
-
+def get_config(module, flags=[]):
     try:
         return _DEVICE_CONFIGS[cmd]
     except KeyError:
-        rc, out, err = exec_command(module, cmd)
-        if rc != 0:
-            module.fail_json(msg='unable to retrieve current config', stderr=to_text(err, errors='surrogate_then_replace'))
-        cfg = to_text(out, errors='surrogate_then_replace').strip()
+        connection = get_connection(module)
+        cfg = connection.get_config(flags=flags)
         _DEVICE_CONFIGS[cmd] = cfg
         return cfg
 
@@ -111,28 +102,16 @@ def to_commands(module, commands):
 
 
 def run_commands(module, commands, check_rc=True):
+    connection = get_connection(module)
     responses = list()
     commands = to_commands(module, to_list(commands))
     for cmd in commands:
-        cmd = module.jsonify(cmd)
-        rc, out, err = exec_command(module, cmd)
-        if check_rc and rc != 0:
-            module.fail_json(msg=to_text(err, errors='surrogate_then_replace'), rc=rc)
+        out = connection.get(**cmd)
         responses.append(to_text(out, errors='surrogate_then_replace'))
     return responses
 
 
 def load_config(module, commands):
+    connection = get_connection(module)
+    return connection.edit_config(commands)
 
-    rc, out, err = exec_command(module, 'configure terminal')
-    if rc != 0:
-        module.fail_json(msg='unable to enter configuration mode', err=to_text(out, errors='surrogate_then_replace'))
-
-    for command in to_list(commands):
-        if command == 'end':
-            continue
-        rc, out, err = exec_command(module, command)
-        if rc != 0:
-            module.fail_json(msg=to_text(err, errors='surrogate_then_replace'), command=command, rc=rc)
-
-    exec_command(module, 'end')

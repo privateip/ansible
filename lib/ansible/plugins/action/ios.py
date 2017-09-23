@@ -38,13 +38,15 @@ class ActionModule(_ActionModule):
 
     def run(self, tmp=None, task_vars=None):
 
-        if self._play_context.connection != 'local':
+        if self._play_context.connection not in ('local', 'network_cli'):
             return dict(
                 failed=True,
-                msg='invalid connection specified, expected connection=local, '
+                msg='invalid connection specified, expected one of `local`, `network_cli`,'
                     'got %s' % self._play_context.connection
             )
 
+        # building the play_context is here only for backwards compatible and
+        # can be removed once the deprecation is done
         provider = load_provider(ios_provider_spec, self._task.args)
 
         pc = copy.deepcopy(self._play_context)
@@ -52,7 +54,7 @@ class ActionModule(_ActionModule):
         pc.network_os = 'ios'
         pc.remote_addr = provider['host'] or self._play_context.remote_addr
         pc.port = int(provider['port'] or self._play_context.port or 22)
-        pc.remote_user = provider['username'] or self._play_context.connection_user
+        pc.connection_user = provider['username'] or self._play_context.connection_user
         pc.password = provider['password'] or self._play_context.password
         pc.private_key_file = provider['ssh_keyfile'] or self._play_context.private_key_file
         pc.timeout = int(provider['timeout'] or C.PERSISTENT_COMMAND_TIMEOUT)
@@ -60,27 +62,17 @@ class ActionModule(_ActionModule):
         pc.become_pass = provider['auth_pass']
 
         display.vvv('using connection plugin %s' % pc.connection, pc.remote_addr)
-        connection = self._shared_loader_obj.connection_loader.get('persistent', pc, sys.stdin)
 
-        socket_path = connection.run()
-        display.vvvv('socket_path: %s' % socket_path, pc.remote_addr)
-        if not socket_path:
-            return {'failed': True,
-                    'msg': 'unable to open shell. Please see: ' +
-                           'https://docs.ansible.com/ansible/network_debug_troubleshooting.html#unable-to-open-shell'}
+        if self._play_context.connection == 'local':
+            connection = self._shared_loader_obj.connection_loader.get('network_cli',  pc, sys.stdin)
+            socket_path = connection.start(pc)
+            display.vvvv('socket_path: %s' % socket_path, pc.remote_addr)
+            if not socket_path:
+                return {'failed': True,
+                        'msg': 'unable to open shell. Please see: ' +
+                            'https://docs.ansible.com/ansible/network_debug_troubleshooting.html#unable-to-open-shell'}
 
-        # make sure we are in the right cli context which should be
-        # enable mode and not config module
-        rc, out, err = connection.exec_command('prompt()')
-        if str(out).strip().endswith(')#'):
-            display.vvvv('wrong context, sending exit to device', self._play_context.remote_addr)
-            connection.exec_command('exit')
-
-        task_vars['ansible_socket'] = socket_path
-
-        if self._play_context.become_method == 'enable':
-            self._play_context.become = False
-            self._play_context.become_method = None
+            task_vars['ansible_socket'] = socket_path
 
         result = super(ActionModule, self).run(tmp, task_vars)
         return result

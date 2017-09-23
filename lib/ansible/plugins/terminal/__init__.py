@@ -66,10 +66,11 @@ class TerminalBase(with_metaclass(ABCMeta, object)):
         :returns: A tuple of return code, stdout, and stderr from running the
             command.  stdout and stderr are both byte strings.
         """
-        rc, out, err = self._connection.exec_command(cmd)
-        if check_rc and rc != 0:
-            raise AnsibleConnectionFailure(err)
-        return rc, out, err
+        #rc, out, err = self._connection.exec_command(cmd)
+        #if check_rc and rc != 0:
+        #    raise AnsibleConnectionFailure(err)
+        #return rc, out, err
+        return self._connection.send(cmd)
 
     def _get_prompt(self):
         """
@@ -78,7 +79,8 @@ class TerminalBase(with_metaclass(ABCMeta, object)):
         :returns: A byte string of the prompt
         """
         for cmd in (b'\n', b'prompt()'):
-            rc, out, err = self._exec_cli_command(cmd)
+            #rc, out, err = self._exec_cli_command(cmd)
+            out = self._exec_cli_command(cmd)
         return out
 
     def on_open_shell(self):
