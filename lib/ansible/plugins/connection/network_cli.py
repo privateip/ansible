@@ -59,8 +59,9 @@ from ansible.errors import AnsibleConnectionFailure
 from ansible.module_utils.six import BytesIO, binary_type
 from ansible.module_utils._text import to_bytes, to_text
 from ansible.plugins.loader import cliconf_loader, terminal_loader, connection_loader
-from ansible.plugins.connection.jsonrpc import Connection as BaseConnection
-from ansible.plugins.connection.paramiko_ssh import Connection as Ssh
+from ansible.plugins.connection import ConnectionBase
+from ansible.plugins.connection.local import Connection as LocalConnection
+from ansible.plugins.connection.paramiko_ssh import Connection as ParamikoSshConnection
 from ansible.utils.path import unfrackpath, makedirs_safe
 
 try:
@@ -70,30 +71,51 @@ except ImportError:
     display = Display()
 
 
-class Connection(BaseConnection):
+class Connection(ConnectionBase):
     ''' CLI (shell) SSH connections on Paramiko '''
 
     transport = 'network_cli'
     has_pipelining = True
-    startable = True
+    use_persistent_connection = True
 
     def __init__(self, play_context, new_stdin, *args, **kwargs):
         super(Connection, self).__init__(play_context, new_stdin, *args, **kwargs)
 
         self.ssh = None
-
-        self._terminal = None
-        self._cliconf = None
         self._ssh_shell = None
+
         self._matched_prompt = None
         self._matched_pattern = None
         self._last_response = None
         self._history = list()
 
-        self._play_context = play_context
+        self._local = LocalConnection(play_context, new_stdin, *args, **kwargs)
 
-        if play_context.verbosity > 3:
+        self._terminal = None
+        self._cliconf = None
+
+        if self._play_context.verbosity > 3:
             logging.getLogger('paramiko').setLevel(logging.DEBUG)
+
+        # reconstruct the socket_path and set instance values accordingly
+        self._update_connection_state()
+
+    def __getattr__(self, name):
+        try:
+            return self.__dict__[name]
+        except KeyError:
+            if name.startswith('_'):
+                raise AttributeError("'%s' object has no attribute '%s'" % (self.__class__.__name__, name))
+            return getattr(self._cliconf, name)
+
+    def exec_command(self, cmd, in_data=None, sudoable=True):
+        return self._local.exec_command(cmd, in_data, sudoable)
+
+    def put_file(self, in_path, out_path):
+        return self._local.put_file(in_path, out_path)
+
+    def fetch_file(self, in_path, out_path):
+        return self._local.fetch_file(in_path, out_path)
 
     def update_play_context(self, play_context):
         """Updates the play context information for the connection"""
@@ -109,17 +131,17 @@ class Connection(BaseConnection):
 
         self._play_context = play_context
 
-    def start_connection(self, play_context):
-        """Connections to the device and sets the terminal type"""
+    def _connect(self):
+        '''
+        Connects to the remote device and starts the terminal
+        '''
+        if self.connected:
+            return
 
         if self._play_context.password and not self._play_context.private_key_file:
             C.PARAMIKO_LOOK_FOR_KEYS = False
 
-        # assign the remote user to the connection user to make sure the
-        # correct username is passed to paramiko
-        play_context.remote_user = play_context.connection_user
-
-        ssh = Ssh(play_context, '/dev/null')._connect()
+        ssh = ParamikoSshConnection(self._play_context, '/dev/null')._connect()
         self.ssh = ssh.ssh
 
         display.vvvv('ssh connection done, setting terminal', host=self._play_context.remote_addr)
@@ -142,8 +164,6 @@ class Connection(BaseConnection):
 
         self._cliconf = cliconf_loader.get(network_os, self)
         if self._cliconf:
-            self.register_object(self._cliconf)
-            self.register_object(self.reset)
             display.vvvv('loaded cliconf plugin for network_os %s' % network_os, host=self._play_context.remote_addr)
         else:
             display.vvvv('unable to load cliconf for network_os %s' % network_os)
@@ -159,43 +179,57 @@ class Connection(BaseConnection):
             self._terminal.on_authorize(passwd=auth_pass)
 
         display.vvvv('ssh connection has completed successfully', host=self._play_context.remote_addr)
+        self._connected = True
 
-    def reset(self):
-        """ Reset the connection
-        """
+        return self
+
+    def _update_connection_state(self):
+        '''
+        Reconstruct the connection socket_path and check if it exists
+
+        If the socket path exists then the connection is active and set
+        both the _socket_path value to the path and the _connected value
+        to True.  If the socket path doesn't exist, leave the socket path
+        value to None and the _connected value to False
+        '''
         ssh = connection_loader.get('ssh', class_only=True)
         cp = ssh._create_control_path(self._play_context.remote_addr, self._play_context.port, self._play_context.remote_user)
 
         tmp_path = unfrackpath(C.PERSISTENT_CONTROL_PATH_DIR)
         socket_path = unfrackpath(cp % dict(directory=tmp_path))
 
-        display.vvv('socket_path %s' % socket_path, host=self._play_context.remote_addr)
-
         if os.path.exists(socket_path):
-            setattr(self, 'socket_path', socket_path)
-            display.vvvv('shutting down socket due to reset_connection', host=self._play_context.remote_addr)
+            self._connected = True
+            self._socket_path = socket_path
+
+    def reset(self):
+        '''
+        Reset the connection
+        '''
+        if self._socket_path:
+            display.vvvv('resetting persistent connection for socket_path %s' % self._socket_path, host=self._play_context.remote_addr)
             self.shutdown()
-        else:
-            display.vvvv('socket_path does not exist', host=self._play_context.remote_addr)
 
     def close(self):
-        """Close the active connection to the device
-        """
-        display.vvvv("closing ssh connection to device", host=self._play_context.remote_addr)
-        if self._ssh_shell:
-            display.vvvv("firing event: on_close_shell()", host=self._play_context.remote_addr)
-            self._terminal.on_close_shell()
-            self._ssh_shell.close()
-            self._ssh_shell = None
-            display.vvvv("cli session is now closed", host=self._play_context.remote_addr)
-
-        super(Connection, self).close()
-
-        self._connected = False
-        display.vvvv("ssh connection has been closed successfully", host=self._play_context.remote_addr)
+        '''
+        Close the active connection to the device
+        '''
+        # only close the connection if its connected.
+        if self._connected:
+            display.debug("closing ssh connection to device")
+            if self._ssh_shell:
+                display.debug("firing event: on_close_shell()")
+                self._terminal.on_close_shell()
+                self._ssh_shell.close()
+                self._ssh_shell = None
+                display.debug("cli session is now closed")
+            self._connected = False
+            display.debug("ssh connection has been closed successfully")
 
     def receive(self, command=None, prompts=None, answer=None):
-        """Handles receiving of output from command"""
+        '''
+        Handles receiving of output from command
+        '''
         recv = BytesIO()
         handled = False
 
@@ -219,7 +253,9 @@ class Connection(BaseConnection):
                 return self._sanitize(resp, command)
 
     def send(self, command, prompts=None, answer=None, send_only=False):
-        """Sends the command to the device in the opened shell"""
+        '''
+        Sends the command to the device in the opened shell
+        '''
         try:
             self._history.append(command)
             self._ssh_shell.sendall(b'%s\r' % command)
@@ -231,13 +267,15 @@ class Connection(BaseConnection):
             raise AnsibleConnectionFailure("timeout trying to send command: %s" % command.strip())
 
     def _strip(self, data):
-        """Removes ANSI codes from device response"""
+        '''
+        Removes ANSI codes from device response
+        '''
         for regex in self._terminal.ansi_re:
             data = regex.sub(b'', data)
         return data
 
     def _handle_prompt(self, resp, prompts, answer):
-        """
+        '''
         Matches the command prompt and responds
 
         :arg resp: Byte string containing the raw response from the remote
@@ -245,7 +283,7 @@ class Connection(BaseConnection):
         :arg answer: Byte string to send back to the remote if we find a prompt.
                 A carriage return is automatically appended to this string.
         :returns: True if a prompt was found in ``resp``.  False otherwise
-        """
+        '''
         prompts = [re.compile(r, re.I) for r in prompts]
         for regex in prompts:
             match = regex.search(resp)
@@ -255,7 +293,9 @@ class Connection(BaseConnection):
         return False
 
     def _sanitize(self, resp, command=None):
-        """Removes elements from the response before returning to the caller"""
+        '''
+        Removes elements from the response before returning to the caller
+        '''
         cleaned = []
         for line in resp.splitlines():
             if (command and line.strip() == command.strip()) or self._matched_prompt.strip() in line:
@@ -264,7 +304,8 @@ class Connection(BaseConnection):
         return b'\n'.join(cleaned).strip()
 
     def _find_prompt(self, response):
-        """Searches the buffered response for a matching command prompt"""
+        '''Searches the buffered response for a matching command prompt
+        '''
         errored_response = None
         is_error_message = False
         for regex in self._terminal.terminal_stderr_re:
@@ -294,7 +335,10 @@ class Connection(BaseConnection):
         return False
 
     def alarm_handler(self, signum, frame):
-        """Alarm handler raised in case of command timeout """
+        '''
+        Alarm handler raised in case of command timeout
+        '''
         display.vvvv('closing shell due to sigalarm', host=self._play_context.remote_addr)
         self.close()
+
 

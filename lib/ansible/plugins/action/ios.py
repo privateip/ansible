@@ -26,6 +26,7 @@ from ansible import constants as C
 from ansible.plugins.action.normal import ActionModule as _ActionModule
 from ansible.module_utils.network_common import load_provider
 from ansible.module_utils.ios import ios_provider_spec
+from ansible.executor.process.connection import ConnectionProcess
 
 try:
     from __main__ import display
@@ -46,33 +47,36 @@ class ActionModule(_ActionModule):
             )
 
         # building the play_context is here only for backwards compatible and
-        # can be removed once the deprecation is done
-        provider = load_provider(ios_provider_spec, self._task.args)
-
-        pc = copy.deepcopy(self._play_context)
-        pc.connection = 'network_cli'
-        pc.network_os = 'ios'
-        pc.remote_addr = provider['host'] or self._play_context.remote_addr
-        pc.port = int(provider['port'] or self._play_context.port or 22)
-        pc.connection_user = provider['username'] or self._play_context.connection_user
-        pc.password = provider['password'] or self._play_context.password
-        pc.private_key_file = provider['ssh_keyfile'] or self._play_context.private_key_file
-        pc.timeout = int(provider['timeout'] or C.PERSISTENT_COMMAND_TIMEOUT)
-        pc.become = provider['authorize'] or False
-        pc.become_pass = provider['auth_pass']
-
-        display.vvv('using connection plugin %s' % pc.connection, pc.remote_addr)
-
+        # can be removed once the deprecation is done  Use of connection=local
+        # to be deprecated
         if self._play_context.connection == 'local':
+            provider = load_provider(ios_provider_spec, self._task.args)
+
+            pc = copy.deepcopy(self._play_context)
+            pc.connection = 'network_cli'
+            pc.network_os = 'ios'
+            pc.remote_addr = provider['host'] or self._play_context.remote_addr
+            pc.port = int(provider['port'] or self._play_context.port or 22)
+            pc.connection_user = provider['username'] or self._play_context.connection_user
+            pc.password = provider['password'] or self._play_context.password
+            pc.private_key_file = provider['ssh_keyfile'] or self._play_context.private_key_file
+            pc.timeout = int(provider['timeout'] or C.PERSISTENT_COMMAND_TIMEOUT)
+            pc.become = provider['authorize'] or False
+            pc.become_pass = provider['auth_pass']
+
+            display.vvv('using connection=local, building connection %s' % pc.connection, pc.remote_addr)
+
             connection = self._shared_loader_obj.connection_loader.get('network_cli',  pc, sys.stdin)
-            socket_path = connection.start(pc)
-            display.vvvv('socket_path: %s' % socket_path, pc.remote_addr)
-            if not socket_path:
+            process = ConnectionProcess(connection)
+            process.start()
+
+            display.vvvv('socket_path: %s' % connection.socket_path, pc.remote_addr)
+            if not connection.socket_path:
                 return {'failed': True,
                         'msg': 'unable to open shell. Please see: ' +
                             'https://docs.ansible.com/ansible/network_debug_troubleshooting.html#unable-to-open-shell'}
 
-            task_vars['ansible_socket'] = socket_path
+            task_vars['ansible_socket'] = connection.socket_path
 
         result = super(ActionModule, self).run(tmp, task_vars)
         return result

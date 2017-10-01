@@ -68,6 +68,7 @@ class ConnectionBase(AnsiblePlugin):
     # language means any language.
     module_implementation_preferences = ('',)
     allow_executable = True
+    use_persistent_connection = False
 
     def __init__(self, play_context, new_stdin, *args, **kwargs):
 
@@ -87,6 +88,8 @@ class ConnectionBase(AnsiblePlugin):
         self.success_key = None
         self.prompt = None
         self._connected = False
+
+        self._socket_path = None
 
         # load the shell plugin for this action/connection
         if play_context.shell:
@@ -109,6 +112,11 @@ class ConnectionBase(AnsiblePlugin):
     def connected(self):
         '''Read-only property holding whether the connection to the remote host is active or closed.'''
         return self._connected
+
+    @property
+    def socket_path(self):
+        '''Read-only property holding the connection socket path for this remote host'''
+        return self._socket_path
 
     def _become_method_supported(self):
         ''' Checks if the current class supports this privilege escalation method '''

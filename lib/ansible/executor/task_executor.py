@@ -25,6 +25,7 @@ import traceback
 from ansible import constants as C
 from ansible.errors import AnsibleError, AnsibleParserError, AnsibleUndefinedVariable, AnsibleConnectionFailure, AnsibleActionFail, AnsibleActionSkip
 from ansible.executor.task_result import TaskResult
+from ansible.executor.process.connection import ConnectionProcess
 from ansible.module_utils.six import iteritems, string_types, binary_type
 from ansible.module_utils._text import to_text
 from ansible.playbook.conditional import Conditional
@@ -164,6 +165,7 @@ class TaskExecutor:
             except AttributeError:
                 pass
             except Exception as e:
+                raise
                 display.debug(u"error closing connection: %s" % to_text(e))
 
     def _get_loop_items(self):
@@ -716,24 +718,19 @@ class TaskExecutor:
                     if isinstance(i, string_types) and i.startswith("ansible_") and i.endswith("_interpreter"):
                         variables[i] = delegated_vars[i]
 
-        # if using persistent paramiko connections (or the action has set the FORCE_PERSISTENT_CONNECTION attribute to True),
-        # then we use the persistent connection plugion. Otherwise load the requested connection plugin
-        #if C.USE_PERSISTENT_CONNECTIONS or getattr(self, 'FORCE_PERSISTENT_CONNECTION', False):
-        #    conn_type = 'persistent'
-        #else:
-        #    conn_type = self._play_context.connection
-
         conn_type = self._play_context.connection
 
         connection = self._shared_loader_obj.connection_loader.get(conn_type, self._play_context, self._new_stdin)
         if not connection:
             raise AnsibleError("the connection plugin '%s' was not found" % conn_type)
 
-        if hasattr(connection, 'start'):
-            display.vvvv('attempting to start connection', host=self._play_context.remote_addr)
-            connection.start(self._play_context)
-
         self._play_context.set_options_from_plugin(connection)
+
+        if any((C.USE_PERSISTENT_CONNECTIONS, getattr(connection, 'use_persistent_connection', False))):
+            display.vvvv('attempting to start connection', host=self._play_context.remote_addr)
+            display.vvvv('using connection plugin %s' % connection.transport, host=self._play_context.remote_addr)
+            process = ConnectionProcess(connection)
+            process.start()
 
         return connection
 

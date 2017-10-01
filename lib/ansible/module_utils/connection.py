@@ -36,6 +36,7 @@ import uuid
 from functools import partial
 
 from ansible.module_utils._text import to_bytes, to_native, to_text
+from ansible.module_utils.six import iteritems
 
 
 def send_data(s, data):
@@ -92,7 +93,11 @@ def request_builder(method, *args, **kwargs):
     return req
 
 class ConnectionError(Exception):
-    pass
+
+    def __init__(self, message, *args, **kwargs):
+        super(ConnectionError, self).__init__(message)
+        for k, v in iteritems(kwargs):
+            setattr(self, k, v)
 
 class Connection:
 
@@ -136,8 +141,10 @@ class Connection:
             raise ConnectionError('invalid json-rpc id received')
 
         if 'error' in response:
-            msg = response['error'].get('data') or response['error']['message']
-            raise ConnectionError(msg, errors='surrogate_then_replace')
+            err = response.get('error')
+            msg = err.get('data') or err['message']
+            code = err['code']
+            raise ConnectionError(msg, code=code, errors='surrogate_then_replace')
 
         return response['result']
 

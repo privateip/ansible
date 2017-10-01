@@ -28,7 +28,7 @@
 from ansible.module_utils._text import to_text
 from ansible.module_utils.basic import env_fallback, return_values
 from ansible.module_utils.network_common import to_list, ComplexList
-from ansible.module_utils.connection import get_connection
+from ansible.module_utils.connection import get_connection, ConnectionError
 
 _DEVICE_CONFIGS = {}
 
@@ -102,13 +102,16 @@ def to_commands(module, commands):
 
 
 def run_commands(module, commands, check_rc=True):
-    connection = get_connection(module)
-    responses = list()
-    commands = to_commands(module, to_list(commands))
-    for cmd in commands:
-        out = connection.get(**cmd)
-        responses.append(to_text(out, errors='surrogate_then_replace'))
-    return responses
+    try:
+        connection = get_connection(module)
+        responses = list()
+        commands = to_commands(module, to_list(commands))
+        for cmd in commands:
+            out = connection.get(**cmd)
+            responses.append(to_text(out, errors='surrogate_then_replace'))
+        return responses
+    except ConnectionError as exc:
+        module.fail_json(msg=str(exc))
 
 
 def load_config(module, commands):
