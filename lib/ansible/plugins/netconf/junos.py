@@ -66,7 +66,10 @@ class Netconf(NetconfBase):
         """RPC to be execute on remote device
            :rpc: Name of rpc in string format"""
         name = new_ele(rpc)
-        return self.m.rpc(name).data_xml
+        if self._connection.transport == 'junos-eznc':
+            return to_xml(self.m.rpc(name))
+        else:
+            return self.m.rpc(name).data_xml
 
     @ensure_connected
     def load_configuration(self, *args, **kwargs):
@@ -82,33 +85,26 @@ class Netconf(NetconfBase):
         result['rpc'] = self.get_base_rpc() + ['commit', 'discard_changes', 'validate', 'lock', 'unlock', 'copy_copy']
         result['network_api'] = 'netconf'
         result['device_info'] = self.get_device_info()
-        result['server_capabilities'] = [c for c in self.m.server_capabilities]
-        result['client_capabilities'] = [c for c in self.m.client_capabilities]
-        result['session_id'] = self.m.session_id
+
+        if self._connection.transport == 'junos-eznc':
+            result['server_capabilities'] = [c for c in self.m._conn.server_capabilities]
+            result['client_capabilities'] = [c for c in self.m._conn.client_capabilities]
+            result['session_id'] = self.m._conn.session_id
+        else:
+            result['server_capabilities'] = [c for c in self.m.server_capabilities]
+            result['client_capabilities'] = [c for c in self.m.client_capabilities]
+            result['session_id'] = self.m.session_id
         return json.dumps(result)
 
-    @staticmethod
-    def guess_network_os(obj):
+    @ensure_connected
+    def get_config(self, *args, **kwargs):
+        """Retrieve all or part of a specified configuration.
+           :source: name of the configuration datastore being queried
+           :filter: specifies the portion of the configuration to retrieve
+           (by default entire configuration is retrieved)"""
+        if self._connection.transport == 'junos-eznc':
+            return to_xml(self.m.rpc.get_config(*args, **kwargs))
+        else:
+            super(Netconf, self).get_config(*args, **kwargs)
 
-        try:
-            m = manager.connect(
-                host=obj._play_context.remote_addr,
-                port=obj._play_context.port or 830,
-                username=obj._play_context.remote_user,
-                password=obj._play_context.password,
-                key_filename=str(obj.key_filename),
-                hostkey_verify=C.HOST_KEY_CHECKING,
-                look_for_keys=C.PARAMIKO_LOOK_FOR_KEYS,
-                allow_agent=obj.allow_agent,
-                timeout=obj._play_context.timeout
-            )
-        except SSHUnknownHostError as exc:
-            raise AnsibleConnectionFailure(str(exc))
 
-        guessed_os = None
-        for c in m.server_capabilities:
-            if re.search('junos', c):
-                guessed_os = 'junos'
-
-        m.close_session()
-        return guessed_os
