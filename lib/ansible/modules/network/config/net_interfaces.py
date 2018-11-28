@@ -15,16 +15,15 @@ ANSIBLE_METADATA = {'metadata_version': '1.1',
 
 DOCUMENTATION = """
 ---
-module: net_system
-version_added: "2.4"
-author: "Ricardo Carrillo Cruz (@rcarrillocruz)"
-short_description: Manage the system attributes on network devices
+module: net_interface
+version_added: "2.8"
+author: "Peter Sprygada (@privateip)"
+short_description: Manage physical and logical interfaces
 description:
-  - This module provides declarative management of node system attributes
-    on network devices.  It provides an option to configure host system
-    parameters or remove those parameters from the device active
-    configuration.
+  - Provide configuration management of both physical and logical interfaces
+    on network devices.
 options:
+
   hostname:
     description:
       - Configure the device hostname parameter. This option takes an ASCII string value.
@@ -64,36 +63,61 @@ options:
 """
 
 EXAMPLES = """
-- name: configure hostname and domain name
-  net_system:
-    hostname: ios01
-    domain_name: test.example.com
-    domain-search:
-      - ansible.com
-      - redhat.com
-      - cisco.com
-
-- name: remove configuration
-  net_system:
-    state: absent
-
-- name: configure DNS lookup sources
-  net_system:
-    lookup_source: MgmtEth0/0/CPU0/0
-
-- name: configure name servers
-  net_system:
-    name_servers:
-      - 8.8.8.8
-      - 8.8.4.4
 """
 
 RETURN = """
 commands:
   description: The list of configuration mode commands to send to the device
-  returned: always, except for the platforms that use Netconf transport to manage the device.
+  returned: when connection type is C(network_cli)
   type: list
   sample:
     - hostname ios01
     - ip domain name test.example.com
 """
+from ansible.module_utils._text import to_text
+from ansible.module_utils.network.common.module import NetworkModule
+
+import ansible.module_utils.network.eos.providers.cli.config.interfaces
+
+
+def main():
+    """main entry point for module execution
+    """
+    ipv4_spec = {
+        'address': dict(),
+        'masklen': dict()
+    }
+
+    switchport_spec = {
+        'mode': dict(default='access', choices=['access', 'trunk']),
+        'access_vlan': dict(type='int'),
+        'trunk_native_vlan': dict(type='int'),
+        'trunk_allowed_vlans': dict()
+    }
+
+    config_spec = {
+        'name': dict(required=True),
+        'description': dict(),
+        'enabled': dict(type='bool'),
+        'vrf': dict(),
+        'ipv4': dict(type='dict', elements='dict', options=ipv4_spec),
+        'switchport': dict(type='dict', elements='dict', options=switchport_spec),
+    }
+
+    argument_spec = {
+        'config': dict(type='list', elements='dict', required=True, options=config_spec),
+        'operation': dict(default='merge', choices=['merge', 'replace', 'override'])
+    }
+
+    module = NetworkModule(argument_spec=argument_spec,
+                           supports_check_mode=True)
+
+    try:
+        result = module.edit_config()
+    except Exception as exc:
+        module.fail_json(msg=to_text(exc))
+
+    module.exit_json(**result)
+
+if __name__ == '__main__':
+    main()

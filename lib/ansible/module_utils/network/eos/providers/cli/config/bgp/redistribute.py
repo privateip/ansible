@@ -27,51 +27,51 @@
 # LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
 # USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-from ansible.module_utils.six import iteritems
+from ansible.module_utils.six import itervalues
 from ansible.module_utils.network.common.utils import to_list
-from ansible.module_utils.basic import env_fallback
+from ansible.module_utils.network.common.providers import ConfigEntity, CollectionEntity
+from ansible.module_utils.network.common.providers import Attribute
 
 
-eos_provider_spec = {
-    'host': dict(),
-    'port': dict(type='int'),
-    'username': dict(fallback=(env_fallback, ['ANSIBLE_NET_USERNAME'])),
-    'password': dict(fallback=(env_fallback, ['ANSIBLE_NET_PASSWORD']), no_log=True),
-    'ssh_keyfile': dict(fallback=(env_fallback, ['ANSIBLE_NET_SSH_KEYFILE']), type='path'),
+class Redistribution(ConfigEntity):
 
-    'authorize': dict(fallback=(env_fallback, ['ANSIBLE_NET_AUTHORIZE']), type='bool'),
-    'auth_pass': dict(no_log=True, fallback=(env_fallback, ['ANSIBLE_NET_AUTH_PASS'])),
+    _protocol = Attribute(required=True, choices=['static', 'connected'])
+    _route_map = Attribute()
 
-    'use_ssl': dict(default=True, type='bool'),
-    'use_proxy': dict(default=True, type='bool'),
-    'validate_certs': dict(default=True, type='bool'),
-    'timeout': dict(type='int'),
+    def render(self, config=None):
+        cmd = 'redistribute %s' % self.protocol
 
-    'transport': dict(default='cli', choices=['cli', 'eapi'])
-}
+        if self.route_map:
+            cmd += ' route-map %s' % self.route_map
 
+        if not config or cmd not in config:
+            return cmd
 
-eos_argument_spec = {
-    'provider': dict(type='dict', options=eos_provider_spec),
-}
+class RedistributeConfig(CollectionEntity):
 
+    __item_class__ = Redistribution
+    __item_id__ = 'protocol'
 
-eos_top_spec = {
-    'host': dict(removed_in_version=2.9),
-    'port': dict(removed_in_version=2.9, type='int'),
-    'username': dict(removed_in_version=2.9),
-    'password': dict(removed_in_version=2.9, no_log=True),
-    'ssh_keyfile': dict(removed_in_version=2.9, type='path'),
+    def render(self, config=None, operation=None):
+        commands = list()
+        protocols = list()
 
-    'authorize': dict(fallback=(env_fallback, ['ANSIBLE_NET_AUTHORIZE']), type='bool'),
-    'auth_pass': dict(removed_in_version=2.9, no_log=True),
+        for entry in itervalues(self.items):
+            resp = entry.render(config)
+            if resp:
+                commands.append(resp)
+            protocols.append(entry.protocol)
 
-    'use_ssl': dict(removed_in_version=2.9, type='bool'),
-    'validate_certs': dict(removed_in_version=2.9, type='bool'),
-    'timeout': dict(removed_in_version=2.9, type='int'),
+        if operation == 'override' and config is not None:
+            resp = self._negate_redistribute(config=config, safe_list=protocols)
+            if resp:
+                commands.append(resp)
 
-    'transport': dict(removed_in_version=2.9, choices=['cli', 'eapi'])
-}
+        return commands
 
-
-eos_argument_spec.update(eos_top_spec)
+    def _negate_redistribute(self, config=None, safe_list=None):
+        commands = list()
+        for proto in ('connected', 'static'):
+            if 'redistribute %s' % proto in config:
+                commands.append('no redistirbute %s' % proto)
+        return commands

@@ -29,49 +29,50 @@
 #
 from ansible.module_utils.six import iteritems
 from ansible.module_utils.network.common.utils import to_list
-from ansible.module_utils.basic import env_fallback
+from ansible.module_utils.network.common.providers import CliProvider
+from ansible.module_tuils.network.common.providers import register_provider
 
 
-eos_provider_spec = {
-    'host': dict(),
-    'port': dict(type='int'),
-    'username': dict(fallback=(env_fallback, ['ANSIBLE_NET_USERNAME'])),
-    'password': dict(fallback=(env_fallback, ['ANSIBLE_NET_PASSWORD']), no_log=True),
-    'ssh_keyfile': dict(fallback=(env_fallback, ['ANSIBLE_NET_SSH_KEYFILE']), type='path'),
+@register_provider('eos', 'net_vrf')
+class VrfConfig(CliProvider):
 
-    'authorize': dict(fallback=(env_fallback, ['ANSIBLE_NET_AUTHORIZE']), type='bool'),
-    'auth_pass': dict(no_log=True, fallback=(env_fallback, ['ANSIBLE_NET_AUTH_PASS'])),
+    def render(self, config=None, operation='merge'):
+        commands = list()
+        safe_list = list()
 
-    'use_ssl': dict(default=True, type='bool'),
-    'use_proxy': dict(default=True, type='bool'),
-    'validate_certs': dict(default=True, type='bool'),
-    'timeout': dict(type='int'),
+        context = 'vrf definition %s' % self.params['name']
+        config = self.get_section(config, context, indent=3)
 
-    'transport': dict(default='cli', choices=['cli', 'eapi'])
-}
+        if operation in ('override', 'replace'):
+            commands.append('no %s' % context)
 
+        if not config or context not in config:
+            commands.append(context)
 
-eos_argument_spec = {
-    'provider': dict(type='dict', options=eos_provider_spec),
-}
+        for key, value in iteritems(self.params):
+            if value is not None:
+                meth = getattr(self, '_render_%s' % attr, None)
+                if meth:
+                    resp = meth(config)
+                    if resp:
+                        if not commands:
+                            commands.append(context)
+                    commands.extend(to_list(resp))
 
+        if commands:
+            commands.append('exit')
 
-eos_top_spec = {
-    'host': dict(removed_in_version=2.9),
-    'port': dict(removed_in_version=2.9, type='int'),
-    'username': dict(removed_in_version=2.9),
-    'password': dict(removed_in_version=2.9, no_log=True),
-    'ssh_keyfile': dict(removed_in_version=2.9, type='path'),
+        if operation == 'override':
+            self._negate_config(config, safe_list=safe_list)
 
-    'authorize': dict(fallback=(env_fallback, ['ANSIBLE_NET_AUTHORIZE']), type='bool'),
-    'auth_pass': dict(removed_in_version=2.9, no_log=True),
+        return commands
 
-    'use_ssl': dict(removed_in_version=2.9, type='bool'),
-    'validate_certs': dict(removed_in_version=2.9, type='bool'),
-    'timeout': dict(removed_in_version=2.9, type='int'),
+    def _render_description(self, config=None):
+        cmd = 'description %s' % self.description
+        if not config or cmd not in config:
+            return cmd
 
-    'transport': dict(removed_in_version=2.9, choices=['cli', 'eapi'])
-}
-
-
-eos_argument_spec.update(eos_top_spec)
+    def _render_route_distinguisher(self, config=None):
+        cmd = 'rd %s' % self.params['route_distinguisher']
+        if not config or cmd not in config:
+            return cmd

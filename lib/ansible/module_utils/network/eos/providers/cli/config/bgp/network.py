@@ -27,51 +27,58 @@
 # LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
 # USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-from ansible.module_utils.six import iteritems
+from ansible.module_utils.six import itervalues
 from ansible.module_utils.network.common.utils import to_list
-from ansible.module_utils.basic import env_fallback
+from ansible.module_utils.network.common.providers import ConfigEntity, CollectionEntity
+from ansible.module_utils.network.common.providers import Attribute
 
 
-eos_provider_spec = {
-    'host': dict(),
-    'port': dict(type='int'),
-    'username': dict(fallback=(env_fallback, ['ANSIBLE_NET_USERNAME'])),
-    'password': dict(fallback=(env_fallback, ['ANSIBLE_NET_PASSWORD']), no_log=True),
-    'ssh_keyfile': dict(fallback=(env_fallback, ['ANSIBLE_NET_SSH_KEYFILE']), type='path'),
+class BgpNetwork(ConfigEntity):
 
-    'authorize': dict(fallback=(env_fallback, ['ANSIBLE_NET_AUTHORIZE']), type='bool'),
-    'auth_pass': dict(no_log=True, fallback=(env_fallback, ['ANSIBLE_NET_AUTH_PASS'])),
+    _network = Attribute(required=True)
+    _route_map = Attribute()
 
-    'use_ssl': dict(default=True, type='bool'),
-    'use_proxy': dict(default=True, type='bool'),
-    'validate_certs': dict(default=True, type='bool'),
-    'timeout': dict(type='int'),
+    def render(self, config=None, operation='merge'):
+        cmd = 'network %s' % self.network
 
-    'transport': dict(default='cli', choices=['cli', 'eapi'])
-}
+        if self.route_map:
+            cmd += ' route-map %s' % self.route_map
+
+        if not config or cmd not in config:
+            return cmd
 
 
-eos_argument_spec = {
-    'provider': dict(type='dict', options=eos_provider_spec),
-}
+class BgpNetworkConfig(CollectionEntity):
 
+    __item_class__ = BgpNetwork
+    __item_id__ = 'network'
+    __item_key__ = 'network'
 
-eos_top_spec = {
-    'host': dict(removed_in_version=2.9),
-    'port': dict(removed_in_version=2.9, type='int'),
-    'username': dict(removed_in_version=2.9),
-    'password': dict(removed_in_version=2.9, no_log=True),
-    'ssh_keyfile': dict(removed_in_version=2.9, type='path'),
+    def render(self, config=None, operation=None):
+        commands = list()
+        networks = list()
 
-    'authorize': dict(fallback=(env_fallback, ['ANSIBLE_NET_AUTHORIZE']), type='bool'),
-    'auth_pass': dict(removed_in_version=2.9, no_log=True),
+        current_config = config
 
-    'use_ssl': dict(removed_in_version=2.9, type='bool'),
-    'validate_certs': dict(removed_in_version=2.9, type='bool'),
-    'timeout': dict(removed_in_version=2.9, type='int'),
+        if operation in ('replace', 'override'):
+            config = None
 
-    'transport': dict(removed_in_version=2.9, choices=['cli', 'eapi'])
-}
+        for entry in itervalues(self.items):
+            resp = entry.render(config)
+            if resp:
+                commands.append(resp)
 
+            networks.append(entry.network)
 
-eos_argument_spec.update(eos_top_spec)
+        if operation == 'override' and config is not None:
+            resp = self_negate_network(config=current_config, safe_list=networks)
+            commands.extend(resp)
+
+        return commands
+
+    def _negate_network(self, config, safe_list):
+        commands = list()
+        matches = re.findall('^\s{3}network .*$', config, re.M)
+        for match in matches:
+            commands.apppend('no %s' % match)
+        return commands
